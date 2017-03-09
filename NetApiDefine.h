@@ -55,6 +55,7 @@ enum enumFunFlag: short
     ,Fun_IpAndPortResponse  //响应盒子上报
     ,Fun_P2P    //p2p打洞
     ,Fun_ConnectFor  //决定连接类型.
+	,Fun_PeerLogout  //盒子退出
 };
 
 enum enumErrorCode

@@ -16,7 +16,7 @@
 
 #define CODE_BUFF_SIZE  36
 
-#define PACK_EXPIRE_TIME 10
+#define PACK_EXPIRE_TIME 5
 
 
 void printBuffHexString(const void *pBuf, int len)
@@ -70,6 +70,9 @@ void printBuffHexString(const void *pBuf, int len)
     myprintf("\nprint buffer len:%d\n%s",len,str);
 }
 
+
+
+
 class CPackInfo
 {
 public:
@@ -85,12 +88,13 @@ public:
 public:
     CPackInfo()
     {
-        gettimeofday(&mStartTime, 0);
         clear();
+        gettimeofday(&mStartTime, 0);        
     }
     CPackInfo(const CPackInfo &other)
     {
         copy(other);
+        gettimeofday(&mStartTime, 0);
     }
     void copy(const CPackInfo &other)
     {
@@ -133,12 +137,26 @@ public:
         const char *pCode = (const  char*)pBuf;
         memcpy(mCode, &pCode[offset], CODE_BUFF_SIZE-4);
         mCode[CODE_BUFF_SIZE-4]=0;
+		printfInfo("parse pack ");
+		
     }
+	
+	void printfInfo(const char* msg)
+	{
+		in_addr priveteAddr={0};
+		in_addr publicAddr={0};
+		priveteAddr.s_addr = mPrivateIP;
+		publicAddr.s_addr = mPublicIP;
+		char tempIp[0x20] = {0};
+		strcpy(tempIp,inet_ntoa(publicAddr));
+		printf("%s %s %d  (%s:%d) (%s:%d)\n",msg,mCode, mP2PIdentifyCode, tempIp,ntohs(mPublicPort), inet_ntoa(priveteAddr),ntohs(mPrivatePort));
+	}
 
     bool checkTimeout()
     {
         timeval tv = {0};
         gettimeofday(&tv,0);
+        printf("check timeout %li - %li = %li\n", tv.tv_sec,mStartTime.tv_sec,tv.tv_sec - mStartTime.tv_sec);
         return tv.tv_sec - mStartTime.tv_sec>= PACK_EXPIRE_TIME;
     }
 
@@ -287,6 +305,7 @@ public:
                 printf("no data wait signa....\n");
                 mSignal.wait();
                 printf("some data should proc!!!!\n");
+                clearExpirePeer();
                 continue;
             }
             //处理数据包
@@ -320,9 +339,26 @@ public:
                 addPeer(pInfo);
                 holeResponse(pInfo, 0, Fun_IpAndPortResponse);
             }
+            else if(pInfo->mInterfaceType == Fun_PeerLogout)
+            {
+                printf("< Box > logout\n");
+                removePeer(pInfo);
+            }
             
         }
     }
+	
+	void removePeer(CPackInfo *pPack)
+	{
+		std::map<std::string,CPackInfo*>::iterator it = mPeers.find(pPack->mCode);
+        if(it != mPeers.end())
+        {
+            delete pPack;
+			pPack = it->second;
+			delete pPack;
+			mPeers.erase(it);
+        }
+	}
 
     void clearExpirePeer()
     {
@@ -333,6 +369,7 @@ public:
             CPackInfo *pPack = it->second;
             if(pPack->checkTimeout())
             {
+                printf("peer is timeout %s\n", pPack->mCode);
                 itSave = it;
                 mPeers.erase(itSave);
                 ++it;
@@ -350,6 +387,7 @@ public:
         std::map<std::string,CPackInfo*>::iterator it = mPeers.find(pPack->mCode);
         if(it != mPeers.end())
         {
+            printf("update peer %s\n", pPack->mCode);
             it->second->copy(*pPack);
 			delete pPack;
         }
@@ -363,6 +401,7 @@ public:
 
     CPackInfo* findPeer(CPackInfo *pPack)
     {
+		printf("find peer(%d)\n", mPeers.size());
         CPackInfo *pInfo = NULL;
         std::map<std::string,CPackInfo*>::iterator it = mPeers.find(pPack->mCode);
         if(it != mPeers.end())
@@ -404,6 +443,8 @@ public:
             len += 2;
         }
         SetPackLen(buf, len);
+		selfPack->printfInfo("response to ");
+		printBuffHexString(buf,len);
         ssize_t ret = mSock.send(selfPack->mPublicIP,selfPack->mPublicPort, buf, len);
         if(ret<1)
         {
