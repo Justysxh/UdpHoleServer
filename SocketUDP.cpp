@@ -4,6 +4,7 @@
 
 #include <cstdlib>
 #include <errno.h>
+#include <sys/time.h>
 #include "SocketUDP.h"
 #include "NetApiDefine.h"
 
@@ -148,7 +149,7 @@ ssize_t CSocketUDP::bind(u_short port)
 //随机端口绑定
 ssize_t CSocketUDP::randBind(u_short *port)
 {
-    srand(mSock);
+    srand(time(NULL));
     sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;

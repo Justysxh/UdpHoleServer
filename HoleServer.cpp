@@ -133,24 +133,25 @@ public:
         mPrivateIP = GetPackInt(pBuf, offset);
         offset += 4;
         mPrivatePort  = GetPackShort(pBuf, offset);
-		offset += 2;
+        offset += 2;
         const char *pCode = (const  char*)pBuf;
         memcpy(mCode, &pCode[offset], CODE_BUFF_SIZE-4);
         mCode[CODE_BUFF_SIZE-4]=0;
-		printfInfo("parse pack ");
-		
+        printfInfo("parse pack ");
+        
     }
-	
-	void printfInfo(const char* msg)
-	{
-		in_addr priveteAddr={0};
-		in_addr publicAddr={0};
-		priveteAddr.s_addr = mPrivateIP;
-		publicAddr.s_addr = mPublicIP;
-		char tempIp[0x20] = {0};
-		strcpy(tempIp,inet_ntoa(publicAddr));
-		printf("%s %s %d  (%s:%d) (%s:%d)\n",msg,mCode, mP2PIdentifyCode, tempIp,ntohs(mPublicPort), inet_ntoa(priveteAddr),ntohs(mPrivatePort));
-	}
+    
+    void printfInfo(const char* msg)
+    {
+        in_addr priveteAddr={0};
+        in_addr publicAddr={0};
+        priveteAddr.s_addr = mPrivateIP;
+        publicAddr.s_addr = mPublicIP;
+        char tempIp[0x20] = {0};
+        strcpy(tempIp,inet_ntoa(publicAddr));
+        int tempPort = ntohs(mPublicPort);
+        printf("%s %s %d  (%s:%d) (%s:%d)\n",msg,mCode, mP2PIdentifyCode, tempIp, tempPort, inet_ntoa(priveteAddr),ntohs(mPrivatePort));
+    }
 
     bool checkTimeout()
     {
@@ -302,7 +303,7 @@ public:
             CPackInfo *pInfo = peekPack();
             if(pInfo == NULL)
             {
-                printf("no data wait signa....\n");
+                printf("no data wait signa....peer(%d)\n", mPeers.size());
                 mSignal.wait();
                 printf("some data should proc!!!!\n");
                 clearExpirePeer();
@@ -313,10 +314,10 @@ public:
             {
                 if(pInfo->mInterfaceType == Fun_Hole)
                 {
-                    printf("hole request %d %s\n", pInfo->mP2PIdentifyCode,pInfo->mCode);
+                    printf("[*** hole request ***] %d %s\n", pInfo->mP2PIdentifyCode,pInfo->mCode);
                 } else
                 {
-                    printf("hole heart %d %s\n", pInfo->mP2PIdentifyCode,pInfo->mCode);
+                    printf("[=== hole heart ===] %d %s\n", pInfo->mP2PIdentifyCode,pInfo->mCode);
                 }
                 CPackInfo *pPeer = findPeer(pInfo);
                 if(pPeer)
@@ -328,8 +329,8 @@ public:
                 }
                 //响应打app打洞
                 holeResponse(pInfo, pPeer, Fun_HoleResponse);
-				delete pInfo;
-				if(pPeer) delete pPeer;
+                delete pInfo;
+                if(pPeer) delete pPeer;
             }
             else if(pInfo->mInterfaceType == Fun_IpAndPort)
             {
@@ -341,24 +342,24 @@ public:
             }
             else if(pInfo->mInterfaceType == Fun_PeerLogout)
             {
-                printf("< Box > logout\n");
                 removePeer(pInfo);
             }
             
         }
     }
-	
-	void removePeer(CPackInfo *pPack)
-	{
-		std::map<std::string,CPackInfo*>::iterator it = mPeers.find(pPack->mCode);
+    
+    void removePeer(CPackInfo *pPack)
+    {
+        std::map<std::string,CPackInfo*>::iterator it = mPeers.find(pPack->mCode);
         if(it != mPeers.end())
         {
             delete pPack;
-			pPack = it->second;
-			delete pPack;
-			mPeers.erase(it);
+            pPack = it->second;
+            delete pPack;
+            mPeers.erase(it);
         }
-	}
+        printf("< Box > logout peer(%d) %s\n", mPeers.size(),pPack->mCode);
+    }
 
     void clearExpirePeer()
     {
@@ -389,11 +390,11 @@ public:
         {
             printf("update peer %s\n", pPack->mCode);
             it->second->copy(*pPack);
-			delete pPack;
+            delete pPack;
         }
         else
         {
-            printf("box online %s \n", pPack->mCode);
+            printf("[+++ box online +++] %s \n", pPack->mCode);
             mPeers.insert(std::pair<std::string,CPackInfo*>(pPack->mCode,pPack));
         }
 
@@ -401,7 +402,7 @@ public:
 
     CPackInfo* findPeer(CPackInfo *pPack)
     {
-		printf("find peer(%d)\n", mPeers.size());
+        printf("find peer(%d)\n", mPeers.size());
         CPackInfo *pInfo = NULL;
         std::map<std::string,CPackInfo*>::iterator it = mPeers.find(pPack->mCode);
         if(it != mPeers.end())
@@ -443,8 +444,8 @@ public:
             len += 2;
         }
         SetPackLen(buf, len);
-		selfPack->printfInfo("response to ");
-		printBuffHexString(buf,len);
+        selfPack->printfInfo("response to ");
+        printBuffHexString(buf,len);
         ssize_t ret = mSock.send(selfPack->mPublicIP,selfPack->mPublicPort, buf, len);
         if(ret<1)
         {
