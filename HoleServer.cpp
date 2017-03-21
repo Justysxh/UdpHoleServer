@@ -12,6 +12,7 @@
 #include "SocketUDP.h"
 #include "ThreadSyncUtil.h"
 #include "NetApiDefine.h"
+#include "UtilMakePack.h"
 
 
 #define CODE_BUFF_SIZE  36
@@ -71,18 +72,27 @@ void printBuffHexString(const void *pBuf, int len)
 }
 
 
+char* SafeCopy(char* buf, int size, const char*src)
+{
+    int len = strlen(src);
+    len = std::min(size,len);
+    char*ret =  strncpy(buf, src,len);
+    buf[len]=0;
+    return ret;
+}
+
 
 
 class CPackInfo
 {
 public:
-    int mP2PIdentifyCode;
     int mIdentifyCode;
     int mPublicIP; //公网IP
     int mPrivateIP; //私网IP
     unsigned short mPublicPort; //公网端口
     unsigned short mPrivatePort; //私网端口
-    char mCode[CODE_BUFF_SIZE];//MD5码作为盒子标识
+    char mP2pHashCode[CODE_BUFF_SIZE];//MD5码作为盒子标识
+    char mP2pKey[CODE_BUFF_SIZE];
     unsigned short mInterfaceType; //命令协议类型
     timeval mStartTime; //包接收时间
 public:
@@ -98,7 +108,6 @@ public:
     }
     void copy(const CPackInfo &other)
     {
-        mP2PIdentifyCode = other.mP2PIdentifyCode;
         mPublicIP = other.mPublicIP;
         mPublicPort = other.mPublicPort;
         mPrivateIP = other.mPrivateIP;
@@ -106,16 +115,17 @@ public:
         mStartTime = other.mStartTime;
         mInterfaceType = other.mInterfaceType;
         mIdentifyCode = other.mIdentifyCode;
-        memcpy(mCode, other.mCode,CODE_BUFF_SIZE);
+        memcpy(mP2pHashCode, other.mP2pHashCode,CODE_BUFF_SIZE);
+        SafeCopy(mP2pKey,CODE_BUFF_SIZE,other.mP2pKey);
     }
     void clear()
     {
-        mP2PIdentifyCode = 0;
         mPublicIP = 0;
         mPrivatePort = 0;
         mPrivateIP = 0;
         mPublicPort = 0;
-        mCode[0] = 0;
+        mP2pHashCode[0] = 0;
+        mP2pKey[0]=0;
         mInterfaceType = 0;
         mStartTime.tv_sec = 0;
         mStartTime.tv_usec = 0;
@@ -125,18 +135,22 @@ public:
     {
         mPublicIP = publicIP;
         mPublicPort = publicPort;
-        mInterfaceType = (unsigned short) GetPackFun(pBuf);
-        mIdentifyCode = GetPackID(pBuf);
-        int offset = GetPackHeadLen();
-        mP2PIdentifyCode = GetPackInt(pBuf, offset);
-        offset +=4;
-        mPrivateIP = GetPackInt(pBuf, offset);
+        mInterfaceType = (unsigned short) CUtilMakePack::GetPackFun(pBuf);
+        mIdentifyCode = CUtilMakePack::GetPackID(pBuf);
+        int offset = CUtilMakePack::GetPackHeadLen();
+        mPrivateIP = CUtilMakePack::GetPackInt(pBuf, offset);
         offset += 4;
-        mPrivatePort  = GetPackShort(pBuf, offset);
+        mPrivatePort  = CUtilMakePack::GetPackShort(pBuf, offset);
         offset += 2;
         const char *pCode = (const  char*)pBuf;
-        memcpy(mCode, &pCode[offset], CODE_BUFF_SIZE-4);
-        mCode[CODE_BUFF_SIZE-4]=0;
+
+        unsigned char strLen = (unsigned char)pCode[offset]; //p2p key length
+        offset += 1;
+        SafeCopy(mP2pKey,CODE_BUFF_SIZE, &pCode[offset]); //p2p key
+        offset += strLen;
+
+        offset += 1;
+        SafeCopy(mP2pHashCode, CODE_BUFF_SIZE, &pCode[offset]); // p2p hash code
         printfInfo("parse pack ");
         
     }
@@ -150,7 +164,7 @@ public:
         char tempIp[0x20] = {0};
         strcpy(tempIp,inet_ntoa(publicAddr));
         int tempPort = ntohs(mPublicPort);
-        printf("%s %s %d  (%s:%d) (%s:%d)\n",msg,mCode, mP2PIdentifyCode, tempIp, tempPort, inet_ntoa(priveteAddr),ntohs(mPrivatePort));
+        printf("%s %s %s  (%s:%d) (%s:%d)\n",msg,mP2pHashCode, mP2pKey, tempIp, tempPort, inet_ntoa(priveteAddr),ntohs(mPrivatePort));
     }
 
     bool checkTimeout()
@@ -314,10 +328,10 @@ public:
             {
                 if(pInfo->mInterfaceType == Fun_Hole)
                 {
-                    printf("[*** hole request ***] %d %s\n", pInfo->mP2PIdentifyCode,pInfo->mCode);
+                    printf("[*** hole request ***] %s %s\n", pInfo->mP2pKey,pInfo->mP2pHashCode);
                 } else
                 {
-                    printf("[=== hole heart ===] %d %s\n", pInfo->mP2PIdentifyCode,pInfo->mCode);
+                    printf("[=== hole heart ===] %s %s\n", pInfo->mP2pKey,pInfo->mP2pHashCode);
                 }
                 CPackInfo *pPeer = findPeer(pInfo);
                 if(pPeer)
@@ -350,7 +364,7 @@ public:
     
     void removePeer(CPackInfo *pPack)
     {
-        std::map<std::string,CPackInfo*>::iterator it = mPeers.find(pPack->mCode);
+        std::map<std::string,CPackInfo*>::iterator it = mPeers.find(pPack->mP2pHashCode);
         if(it != mPeers.end())
         {
             delete pPack;
@@ -358,7 +372,7 @@ public:
             delete pPack;
             mPeers.erase(it);
         }
-        printf("< Box > logout peer(%d) %s\n", mPeers.size(),pPack->mCode);
+        printf("< Box > logout peer(%d) %s\n", mPeers.size(),pPack->mP2pHashCode);
     }
 
     void clearExpirePeer()
@@ -370,7 +384,7 @@ public:
             CPackInfo *pPack = it->second;
             if(pPack->checkTimeout())
             {
-                printf("peer is timeout %s\n", pPack->mCode);
+                printf("peer is timeout %s\n", pPack->mP2pHashCode);
                 itSave = it;
                 mPeers.erase(itSave);
                 ++it;
@@ -385,17 +399,17 @@ public:
 
     void addPeer(CPackInfo *pPack)
     {
-        std::map<std::string,CPackInfo*>::iterator it = mPeers.find(pPack->mCode);
+        std::map<std::string,CPackInfo*>::iterator it = mPeers.find(pPack->mP2pHashCode);
         if(it != mPeers.end())
         {
-            printf("update peer %s\n", pPack->mCode);
+            printf("update peer %s\n", pPack->mP2pHashCode);
             it->second->copy(*pPack);
             delete pPack;
         }
         else
         {
-            printf("[+++ box online +++] %s \n", pPack->mCode);
-            mPeers.insert(std::pair<std::string,CPackInfo*>(pPack->mCode,pPack));
+            printf("[+++ box online +++] %s \n", pPack->mP2pHashCode);
+            mPeers.insert(std::pair<std::string,CPackInfo*>(pPack->mP2pHashCode,pPack));
         }
 
     }
@@ -404,7 +418,7 @@ public:
     {
         printf("find peer(%d)\n", mPeers.size());
         CPackInfo *pInfo = NULL;
-        std::map<std::string,CPackInfo*>::iterator it = mPeers.find(pPack->mCode);
+        std::map<std::string,CPackInfo*>::iterator it = mPeers.find(pPack->mP2pHashCode);
         if(it != mPeers.end())
         {
             pInfo = it->second;
@@ -414,26 +428,21 @@ public:
     }
 
 
-    //head:4 | len:4 | fun:1 |  ver:1 | packID:4 | checkSum:2 | result:1 | P2PIdentifyCode:4 | selfPublicIP:4 | selfPublicPort:2 | peerPublicIP:4 | peerPublicPort:2 | peerSubIP:4 | peerSubPort:2 |
 
     int holeResponse(CPackInfo *selfPack, CPackInfo* peerPack, unsigned short interfaceType)
     {
         unsigned char buf[0x100]={0};
-        GenPack(buf,0x100, selfPack->mIdentifyCode,interfaceType,buf,0);
-        int packHeadLen = GetPackHeadLen();
+        CUtilMakePack::build(buf,0x100, selfPack->mIdentifyCode,interfaceType,buf,0);
+        int packHeadLen = CUtilMakePack::GetPackHeadLen();
         int len = packHeadLen;
         buf[len]= peerPack==0?0:1;
         len += 1;
-        *(int*)&buf[len] = 0; //占位 p2p标识
-        len += 4;
         *(int*)&buf[len] = selfPack->mPublicIP;
         len += 4;
         *(unsigned short*)&buf[len] = selfPack->mPublicPort;
         len += 2;
         if(peerPack)
         {
-            *(int*)&buf[packHeadLen+1] = peerPack->mP2PIdentifyCode; //P2PIdentifyCode
-
             *(int*)&buf[len] = peerPack->mPublicIP; //公网ip
             len += 4;
             *(unsigned short*)&buf[len] = peerPack->mPublicPort;
@@ -442,8 +451,9 @@ public:
             len += 4;
             *(unsigned short*)&buf[len] = peerPack->mPrivatePort;
             len += 2;
+            len += CUtilMakePack::fillWidthString(&buf[len],0x100,peerPack->mP2pKey,strlen(peerPack->mP2pKey));
         }
-        SetPackLen(buf, len);
+        CUtilMakePack::SetPackLen(buf,len);
         selfPack->printfInfo("response to ");
         printBuffHexString(buf,len);
         ssize_t ret = mSock.send(selfPack->mPublicIP,selfPack->mPublicPort, buf, len);

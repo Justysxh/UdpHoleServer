@@ -1,4 +1,4 @@
-objects= holesrv.o NetApiDefine.o SocketUDP.o ThreadUtil.o
+objects= holesrv.o NetApiDefine.o SocketUDP.o UtilMakePack.o ThreadUtil.o
 
 holesrv : $(objects)
 	g++  $(objects) -lpthread -o holesrv
@@ -10,5 +10,7 @@ SocketUDP.o : SocketUDP.cpp
 	g++ -c SocketUDP.cpp -o SocketUDP.o
 ThreadUtil.o : ThreadSyncUtil.cpp
 	g++ -c ThreadSyncUtil.cpp -o ThreadUtil.o
+UtilMakePack.o : UtilMakePack.cpp
+	g++ -c UtilMakePack.cpp -o UtilMakePack.o
 clean : 
 	rm holesrv $(objects)
